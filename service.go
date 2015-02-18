@@ -57,17 +57,17 @@ func systemdUnescape(escaped string) string {
 		}
 		if escaped[i+1] != 'x' {
 			out += escaped[0 : i+1]
-			escaped = escaped[i+2:]
+			escaped = escaped[i+1:]
 			continue
 		}
 		val, err = hex.DecodeString(escaped[i+2 : i+4])
 		if err != nil || len(val) != 1 {
 			out += escaped[0 : i+1]
-			escaped = escaped[i+2:]
+			escaped = escaped[i+1:]
 			continue
 		}
 
-		out += string(val[0])
+		out += escaped[0:i] + string(val[0])
 		escaped = escaped[i+4:]
 	}
 	return out
