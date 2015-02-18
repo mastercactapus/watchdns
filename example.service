@@ -1,0 +1,64 @@
+
+
+[X-Watchdns]
+# A Records are supported via the Name property: example.service.<watch domain>
+# The default configuration is Name=%P and Tag=i-%I (if an instance is present)
+# All invalid domain characters are replaced with hyphens
+# so a unit named example@1.service
+# will, by default, answer to example.service.<watch domain>
+# and example.service
+# will answer to example.service.<watch domain>
+
+# SRV Records are supported via the Srv property
+# SRV records are defined in the format <service>:<protocol>:<port>:<priority>:<weight>
+# priority and weight are optional
+Srv=xmpp:tcp:4000
+
+# In this example an SRV query for _xmpp._tcp.<watch domain>
+# would respond with: _xmpp._tcp.<watch domain> <CheckInterval> IN SRV 0 0 4000 example.service.<watch domain>
+#
+# if the unit file was example@1.service, the response would be
+# _xmpp._tcp.<watch domain> <CheckInterval> IN SRV 0 0 4000 i-1.example.service.<watch domain>
+# Using the default instance tag (the 'i-1') as a unique identifier (since each unit could define separate ports)
+
+# Checks are used for health checking services.
+# Health checks are done on services marked as 'running'
+# at a default interval of 10 seconds. If there are no
+# health checks defined, the service is considered up
+# so long as it as marked as running in fleet.
+#
+# Furthermore, checks 
+CheckTcp=%H:4000
+CheckTcp=%H:4001
+CheckHttp=http://%H:4000/check
+CheckHttp=http://%H:4000/example/check
+CheckInterval=10
+
+
+# It is also worth noting that the CheckInterval
+# is also used to determine TTL for DNS responses
+
+# you may also specify one or more tags
+Tag=primary
+
+# These allow you to filter A record queries
+# 
+# By setting the 'primary' tag this unit will
+# respond to primary.example.service.<watch domain>
+# as well as example.service.<watch domain>
+
+
+# One approach may be to set the tag to the instance name
+#
+# for example, lets say you have the following services running:
+#
+# couch@primary couch@1 couch@2 couch@3
+#
+# and in the 'couch@.service' file you set Tag=%I
+#
+# all four servers will be returned with a query for couch.service.<watch domain>
+# but only couch@primary will respond to primary.couch.service.<watch domain>
+#
+# You can also create 'couch@.service' and 'couch@primary.service' separately 
+# and run with fleet should you need a more specific setup
+#
