@@ -104,41 +104,40 @@ func systemdUnescape(escaped string) string {
 }
 
 func (v *UnitVars) ExpandValue(val string) string {
-	out := ""
+	var out bytes.Buffer
 	var i int
-	var newSubStr string
 	for {
 		i = strings.IndexByte(val, '%')
 		if i == -1 || i == len(val)-1 {
-			out += val
+			out.WriteString(val)
 			break
 		}
+		out.WriteString(val[:i])
 		switch val[i+1] {
 		case 'n':
-			newSubStr = v.UnitName
+			out.WriteString(v.UnitName)
 		case 'N':
-			newSubStr = systemdUnescape(v.UnitName)
+			out.WriteString(systemdUnescape(v.UnitName))
 		case 'p':
-			newSubStr = v.PrefixName
+			out.WriteString(v.PrefixName)
 		case 'P':
-			newSubStr = systemdUnescape(v.PrefixName)
+			out.WriteString(systemdUnescape(v.PrefixName))
 		case 'i':
-			newSubStr = v.InstanceName
+			out.WriteString(v.InstanceName)
 		case 'I':
-			newSubStr = systemdUnescape(v.InstanceName)
+			out.WriteString(systemdUnescape(v.InstanceName))
 		case 'm':
-			newSubStr = v.MachineId
+			out.WriteString(v.MachineId)
 		case 'H':
-			newSubStr = v.HostName
+			out.WriteString(v.HostName)
 		case '%':
-			newSubStr = val[i : i+1]
+			out.WriteString(val[i : i+1])
 		default:
-			newSubStr = val[i : i+2]
+			out.WriteString(val[i : i+2])
 		}
-		out += val[:i] + newSubStr
 		val = val[i+2:]
 	}
-	return out
+	return out.String()
 }
 
 func (vars *UnitVars) ServiceOption(opts []*unit.UnitOption) *ServiceOption {
