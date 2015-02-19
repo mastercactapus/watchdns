@@ -25,14 +25,14 @@ You may use any combination of flags (*--key-name*), `env` vars (*WDNS_KEYNAME*)
 
 You can also run `watchdns --help` for a list of options and more details about what they do.
 
-```bash
+```toml
 # All config keys and their defaults
-WatchDomain=watchdns.
-CheckInterval=5s
-EtcdPeers=http://localhost:4001
-FleetInterval=10s
-FleetPrefix=
-BindAddress=:8053
-LogLevel=info
-LogFormat=ascii
+WatchDomain="watchdns."
+CheckInterval="5s"
+EtcdPeers="http://localhost:4001"
+FleetInterval="10s"
+FleetPrefix=""
+BindAddress=":8053"
+LogLevel="info"
+LogFormat="ascii"
 ```
