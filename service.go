@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/hex"
 	"github.com/coreos/go-systemd/unit"
 	log "github.com/sirupsen/logrus"
@@ -41,36 +42,36 @@ func parseSrvOption(val string) (*SrvOption, error) {
 
 func systemdUnescape(escaped string) string {
 	escaped = strings.Replace(escaped, "-", "/", -1)
-	out := ""
+	var out bytes.Buffer
 	var i int
 	var val []byte
 	var err error
 	for {
 		i = strings.IndexByte(escaped, '\\')
 		if i == -1 {
-			out += escaped
+			out.WriteString(escaped)
 			break
 		}
 		if i+4 >= len(escaped) {
-			out += escaped[i:]
+			out.WriteString(escaped[i:])
 			break
 		}
 		if escaped[i+1] != 'x' {
-			out += escaped[0 : i+1]
+			out.WriteString(escaped[:i+1])
 			escaped = escaped[i+1:]
 			continue
 		}
 		val, err = hex.DecodeString(escaped[i+2 : i+4])
 		if err != nil || len(val) != 1 {
-			out += escaped[0 : i+1]
+			out.WriteString(escaped[:i+1])
 			escaped = escaped[i+1:]
 			continue
 		}
-
-		out += escaped[0:i] + string(val[0])
+		out.WriteString(escaped[:i])
+		out.WriteByte(val[0])
 		escaped = escaped[i+4:]
 	}
-	return out
+	return out.String()
 }
 
 func (v *UnitVars) ExpandValue(val string) string {
