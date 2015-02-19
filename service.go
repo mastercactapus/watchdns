@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
 	"github.com/coreos/go-systemd/unit"
 	log "github.com/sirupsen/logrus"
 	"net"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -37,7 +39,34 @@ type ServiceOption struct {
 }
 
 func parseSrvOption(val string) (*SrvOption, error) {
-	return nil, nil
+	var err error
+	parts := strings.Split(val, ":")
+	if len(parts) < 3 {
+		return nil, fmt.Errorf("invalid format '%s', should be in format <service>:<protocol>:<port>[:priority[:weight]]", val)
+	}
+	s := new(SrvOption)
+	s.Service = parts[0]
+	s.Protocol = parts[1]
+	i, err := strconv.ParseUint(parts[2], 10, 16)
+	if err != nil {
+		return nil, fmt.Errorf("bad port specifier '%s': %s", parts[2], err.Error())
+	}
+	s.Port = uint16(i)
+	if len(parts) >= 4 {
+		i, err = strconv.ParseUint(parts[3], 10, 16)
+		if err != nil {
+			return nil, fmt.Errorf("bad priority specifier '%s': %s", parts[3], err.Error())
+		}
+		s.Priority = uint16(i)
+	}
+	if len(parts) >= 5 {
+		i, err = strconv.ParseUint(parts[4], 10, 16)
+		if err != nil {
+			return nil, fmt.Errorf("bad priority specifier '%s': %s", parts[4], err.Error())
+		}
+		s.Weight = uint16(i)
+	}
+	return s, nil
 }
 
 func systemdUnescape(escaped string) string {

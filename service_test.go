@@ -5,6 +5,30 @@ import (
 	"testing"
 )
 
+func TestParseSrvOption(t *testing.T) {
+	s, err := parseSrvOption("xmpp:tcp:4000")
+	assert.NoError(t, err)
+	assert.Equal(t, 4000, s.Port)
+	assert.Equal(t, 0, s.Priority)
+	assert.Equal(t, "tcp", s.Protocol)
+	assert.Equal(t, "xmpp", s.Service)
+	assert.Equal(t, 0, s.Weight)
+	s, err = parseSrvOption("xmpp:tcp:4000:23")
+	assert.NoError(t, err)
+	assert.Equal(t, 4000, s.Port)
+	assert.Equal(t, 23, s.Priority)
+	assert.Equal(t, "tcp", s.Protocol)
+	assert.Equal(t, "xmpp", s.Service)
+	assert.Equal(t, 0, s.Weight)
+	s, err = parseSrvOption("xmpp:tcp:4000:23:4")
+	assert.NoError(t, err)
+	assert.Equal(t, 4000, s.Port)
+	assert.Equal(t, 23, s.Priority)
+	assert.Equal(t, "tcp", s.Protocol)
+	assert.Equal(t, "xmpp", s.Service)
+	assert.Equal(t, 4, s.Weight)
+}
+
 func TestSystemdUnescape(t *testing.T) {
 	assert.Equal(t, "/ho-me/nathan/.local/Steam/steamap\\%@test\\ing", systemdUnescape(`-ho\x2dme-nathan-.local-Steam-steamap\\x25\x40test\x5cing`))
 }
@@ -23,5 +47,4 @@ func TestUnitVars_ExpandValue(t *testing.T) {
 	assert.Equal(t, "bar", vars.ExpandValue("%i"))
 	assert.Equal(t, "example", vars.ExpandValue("%p"))
 	assert.Equal(t, "example@bar.service", vars.ExpandValue("%n"))
-
 }
