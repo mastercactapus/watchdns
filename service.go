@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/coreos/go-systemd/unit"
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 	"net"
 	"net/url"
 	"strconv"
@@ -36,6 +37,7 @@ type ServiceOption struct {
 	CheckHttp     []*url.URL
 	CheckTcp      []*net.TCPAddr
 	CheckInterval time.Duration
+	CheckTimeout  time.Duration
 }
 
 func parseSrvOption(val string) (*SrvOption, error) {
@@ -147,6 +149,7 @@ func (vars *UnitVars) ServiceOption(opts []*unit.UnitOption) *ServiceOption {
 	o.SrvOptions = make([]*SrvOption, 0, 2)
 	o.CheckHttp = make([]*url.URL, 0, 8)
 	o.CheckTcp = make([]*net.TCPAddr, 0, 5)
+	o.CheckInterval = viper.Get("CheckInterval").(time.Duration)
 	if vars.InstanceName != "" {
 		o.Tags = append(o.Tags, vars.ExpandValue("%I"))
 	}
@@ -155,6 +158,20 @@ func (vars *UnitVars) ServiceOption(opts []*unit.UnitOption) *ServiceOption {
 			continue
 		}
 		switch v.Name {
+		case "CheckInterval":
+			i, err := time.ParseDuration(v.Value)
+			if err != nil {
+				log.Warnf("Could not parse CheckInterval value '%s' in unit %s: %s\n", v.Value, vars.UnitName, err.Error())
+				continue
+			}
+			o.CheckInterval = i
+		case "CheckTimeout":
+			i, err := time.ParseDuration(v.Value)
+			if err != nil {
+				log.Warnf("Could not parse CheckTimeout value '%s' in unit %s: %s\n", v.Value, vars.UnitName, err.Error())
+				continue
+			}
+			o.CheckTimeout = i
 		case "Name":
 			o.Name = vars.ExpandValue(v.Value)
 		case "Tag":
