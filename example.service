@@ -23,15 +23,16 @@ Srv=xmpp:tcp:4000
 
 # Checks are used for health checking services.
 # Health checks are done on services marked as 'running'
-# at a default interval of 10 seconds. If there are no
-# health checks defined, the service is considered up
-# so long as it as marked as running in fleet.
+# at a default interval of 10 seconds and a defailt timeout
+# of 3s. If there are no health checks defined, the service 
+# is considered up so long as it as marked as running in fleet.
 
 CheckTcp=%H:4000
 CheckTcp=%H:4001
 CheckHttp=http://%H:4000/check
 CheckHttp=http://%H:4000/example/check
-CheckInterval=10
+CheckInterval=5s
+CheckTimeout=2s
 
 
 # It is also worth noting that the CheckInterval
