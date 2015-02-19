@@ -26,8 +26,7 @@ Srv=xmpp:tcp:4000
 # at a default interval of 10 seconds. If there are no
 # health checks defined, the service is considered up
 # so long as it as marked as running in fleet.
-#
-# Furthermore, checks 
+
 CheckTcp=%H:4000
 CheckTcp=%H:4001
 CheckHttp=http://%H:4000/check
