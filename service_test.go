@@ -6,7 +6,7 @@ import (
 )
 
 func TestSystemdUnescape(t *testing.T) {
-	assert.Equal(t, "/ho-me/nathan/.local/Steam/steamap%@test\\ing", systemdUnescape(`-ho\x2dme-nathan-.local-Steam-steamap\x25\x40test\x5cing`))
+	assert.Equal(t, "/ho-me/nathan/.local/Steam/steamap\\%@test\\ing", systemdUnescape(`-ho\x2dme-nathan-.local-Steam-steamap\\x25\x40test\x5cing`))
 }
 
 func TestUnitVars_ExpandValue(t *testing.T) {
