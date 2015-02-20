@@ -3,24 +3,25 @@ package main
 import (
 	"github.com/coreos/fleet/etcd"
 	"github.com/coreos/fleet/registry"
-	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 )
 
 type ServiceRegistry struct {
-	Options  RegistryOptions
-	etcd     etcd.Client
-	registry *registry.EtcdRegistry
-	endCh    chan bool
-	queryCh  chan Query
-	hRateCh  chan bool
-	domain   string
-	running  bool
+	Options    RegistryOptions
+	etcd       etcd.Client
+	registry   *registry.EtcdRegistry
+	endCh      chan bool
+	queryACh   chan QueryA
+	querySrvCh chan QuerySrv
+	hRateCh    chan bool
+	domain     string
+	running    bool
+	units      map[string]*ServiceEntry
+	lookup     map[string][]*ServiceEntry
 }
 
 type RegistryOptions struct {
@@ -33,20 +34,38 @@ type RegistryOptions struct {
 }
 
 type ServiceEntry struct {
-	HealthChecks int
-	Successful   int
-	Pending      int
+	LastFleetCheck  time.Time
+	LastHealthCheck time.Time
+	ServiceOption
+	ServerAddress       net.IP
+	PendingHealthChecks int
+	FailedHealthChecks  int
+	Online              bool
 }
 
-type Query struct {
-	Question dns.Question
-	Answer   chan []dns.RR
+type QuerySrv struct {
+	AnswerCh chan []AnswerSrv
+	Name     string
+	Service  string
+	Protocol string
+}
+type QueryA struct {
+	AnswerCh chan []AnswerA
+	Name     string
+}
+type AnswerSrv struct {
+	Server net.IP
+	SrvOption
+	Ttl time.Duration
+}
+type AnswerA struct {
+	Server net.IP
+	Ttl    time.Duration
 }
 
 type HealthCheckResult struct {
-	UnitId  string
-	CheckId string
-	Result  bool
+	UnitId string
+	Result bool
 }
 
 func NewServiceRegistry(etcdPeers []string, prefix string, timeout time.Duration, options *RegistryOptions) (*ServiceRegistry, error) {
@@ -58,6 +77,7 @@ func NewServiceRegistry(etcdPeers []string, prefix string, timeout time.Duration
 	}
 	s := new(ServiceRegistry)
 	s.etcd = cli
+	s.units = make(map[string]*ServiceEntry, 100)
 	s.Options = *options
 	log.Debugln("Using fleet prefix:", prefix)
 	s.registry = registry.NewEtcdRegistry(s.etcd, prefix)
@@ -66,10 +86,12 @@ func NewServiceRegistry(etcdPeers []string, prefix string, timeout time.Duration
 
 //Start monitoring services
 func (r *ServiceRegistry) Start() {
+	log.Info("Starting fleet and health check loop")
 	r.hRateCh = make(chan bool, r.Options.CheckConcurrent)
 	r.endCh = make(chan bool)
-	r.queryCh = make(chan Query, 100)
-	go r.mainLoop(r.endCh, r.queryCh)
+	r.queryACh = make(chan QueryA, 100)
+	r.querySrvCh = make(chan QuerySrv, 100)
+	go r.mainLoop(r.endCh)
 	<-r.endCh
 	r.running = true
 }
@@ -80,7 +102,7 @@ func (r *ServiceRegistry) Stop() {
 	r.endCh <- true
 }
 
-func (r *ServiceRegistry) mainLoop(endCh chan bool, queryCh chan Query) {
+func (r *ServiceRegistry) mainLoop(endCh chan bool) {
 	fleetCh := time.NewTicker(r.Options.FleetInterval)
 	healthCh := time.NewTicker(r.Options.CheckResolution)
 	healthResultsCh := make(chan HealthCheckResult, 100)
@@ -97,10 +119,89 @@ func (r *ServiceRegistry) mainLoop(endCh chan bool, queryCh chan Query) {
 		case <-healthCh.C:
 			r.doHealthChecks(healthResultsCh)
 		case result := <-healthResultsCh:
-			_ = result
-		case query := <-queryCh:
-			_ = query
+			r.processHealthCheckResult(result)
+		case queryA := <-r.queryACh:
+			r.doLookupA(queryA)
+		case querySrv := <-r.querySrvCh:
+			r.doLookupSrv(querySrv)
 		}
+	}
+}
+
+func (r *ServiceRegistry) LookupA(name string) []AnswerA {
+	ch := make(chan []AnswerA, 1)
+	r.queryACh <- QueryA{ch, name}
+	ans := <-ch
+	close(ch)
+	return ans
+}
+func (r *ServiceRegistry) LookupSrv(name, protocol, service string) []AnswerSrv {
+	ch := make(chan []AnswerSrv, 1)
+	r.querySrvCh <- QuerySrv{ch, name, protocol, service}
+	ans := <-ch
+	close(ch)
+	return ans
+}
+
+func (r *ServiceRegistry) doLookupA(q QueryA) {
+	entries := r.lookup[q.Name]
+	if entries == nil || len(entries) == 0 {
+		q.AnswerCh <- []AnswerA{}
+		return
+	}
+	ans := make([]AnswerA, 0, len(entries))
+	for _, e := range entries {
+		// Don't use the unit if the last check with fleet was greater than 2x the Check interval
+		if e.LastFleetCheck.Add(r.Options.FleetInterval * 2 * time.Second).Before(time.Now()) {
+			continue
+		}
+		if e.Online && e.ServerAddress != nil {
+			ans = append(ans, AnswerA{e.ServerAddress, e.CheckInterval})
+		}
+	}
+	q.AnswerCh <- ans
+}
+func (r *ServiceRegistry) doLookupSrv(q QuerySrv) {
+	entries := r.lookup[q.Name]
+	if entries == nil || len(entries) == 0 {
+		q.AnswerCh <- []AnswerSrv{}
+		return
+	}
+	ans := make([]AnswerSrv, 0, len(entries)*3)
+	for _, e := range entries {
+		// Don't use the unit if the last check with fleet was greater than 2x the Check interval
+		if e.LastFleetCheck.Add(r.Options.FleetInterval * 2 * time.Second).Before(time.Now()) {
+			continue
+		}
+		if !e.Online || e.ServerAddress == nil {
+			continue
+		}
+		for _, s := range e.SrvOptions {
+			if s.Service != q.Service || s.Protocol != q.Protocol {
+				continue
+			}
+			ans = append(ans, AnswerSrv{e.ServerAddress, *s, e.CheckInterval})
+		}
+	}
+	q.AnswerCh <- ans
+}
+
+func (r *ServiceRegistry) processHealthCheckResult(h HealthCheckResult) {
+	log.Debugln("HealthCheckResult", h.UnitId, h.Result)
+	entry := r.units[h.UnitId]
+	if entry == nil {
+		return
+	}
+	entry.PendingHealthChecks -= 1
+	//a single failure immediately marks it as offline
+	if h.Result == false {
+		if entry.Online {
+			log.Info("Unit failed health check:", h.UnitId)
+		}
+		entry.Online = false
+		entry.FailedHealthChecks += 1
+	} else if entry.PendingHealthChecks == 0 && entry.FailedHealthChecks == 0 {
+		entry.Online = true
 	}
 }
 
@@ -120,20 +221,54 @@ func (r *ServiceRegistry) reloadFleet() {
 	for _, v := range machines {
 		ips[v.ID] = v.PublicIP
 	}
+
+	r.lookup = make(map[string][]*ServiceEntry, len(units)*3)
 	for _, v := range units {
 		u, err := r.registry.Unit(v.UnitName)
 		if err != nil {
 			log.Warn("Could not read unit from fleet:", err)
 			continue
 		}
+		if u == nil {
+			continue
+		}
 		vars := new(UnitVars)
 		vars.HostName = ips[v.MachineID]
-		vars.PrefixName, vars.InstanceName, _ = parseUnitName(v.UnitName)
+		var unitType string
+		vars.PrefixName, vars.InstanceName, unitType = parseUnitName(v.UnitName)
 		vars.UnitName = v.UnitName
 		vars.MachineId = v.MachineID
-		svc := vars.ServiceOption(u.Unit.Options)
-		log.Error("Don't know what to do:", svc.Name)
+		svc := vars.ServiceOption(r.Options, u.Unit.Options)
+		var entry *ServiceEntry
+		if r.units[v.UnitName+":"+v.MachineID] != nil {
+			entry = r.units[v.UnitName+":"+v.MachineID]
+		} else {
+			entry = new(ServiceEntry)
+		}
+		entry.ServiceOption = *svc
+		entry.ServerAddress = net.ParseIP(ips[v.MachineID])
+		if v.ActiveState == "active" {
+			entry.LastFleetCheck = time.Now()
+		}
+
+		if r.units[v.UnitName+":"+v.MachineID] == nil {
+			log.Debugln("found unit", v.UnitName+":"+v.MachineID)
+		}
+		r.units[v.UnitName+":"+v.MachineID] = entry
+		r.addToLookupTable(entry.Name+unitType+"."+r.Options.Domain, entry)
+		for _, t := range entry.Tags {
+			r.addToLookupTable(t+"."+entry.Name+unitType+"."+r.Options.Domain, entry)
+		}
+		for _, s := range entry.SrvOptions {
+			r.addToLookupTable("_"+s.Service+"._"+s.Protocol+"."+r.Options.Domain, entry)
+		}
 	}
+}
+func (r *ServiceRegistry) addToLookupTable(fqdn string, entry *ServiceEntry) {
+	if r.lookup[fqdn] == nil {
+		r.lookup[fqdn] = make([]*ServiceEntry, 0, 10)
+	}
+	r.lookup[fqdn] = append(r.lookup[fqdn], entry)
 }
 
 // doHealthChecks fires off all pending health checks (with expired timers)
@@ -141,48 +276,62 @@ func (r *ServiceRegistry) reloadFleet() {
 // hRateCh is used to limit the actual rates in the individual goroutines
 // this is so that while health checks are running/pending we can process
 // queries and other things
-func (r *ServiceRegistry) doHealthChecks(results chan HealthCheckResult) {
-
+func (r *ServiceRegistry) doHealthChecks(resultCh chan HealthCheckResult) {
+	for id, entry := range r.units {
+		//only start health checks if we are at or past the interval
+		if time.Now().Sub(entry.LastHealthCheck) < entry.CheckInterval {
+			continue
+		}
+		//skip while checks are still being performed
+		if entry.PendingHealthChecks > 0 {
+			continue
+		}
+		entry.LastHealthCheck = time.Now()
+		entry.FailedHealthChecks = 0
+		entry.PendingHealthChecks = len(entry.CheckHttp) + len(entry.CheckTcp)
+		//short-circuit if there are no health checks
+		if entry.PendingHealthChecks == 0 {
+			entry.Online = true
+			continue
+		}
+		for _, u := range entry.CheckHttp {
+			go r.checkHttp(u.String(), id, resultCh)
+		}
+		for _, a := range entry.CheckTcp {
+			go r.checkTcp(a.String(), id, resultCh)
+		}
+	}
 }
 
-func (r *ServiceRegistry) checkHttp(url string) bool {
-	<-r.hRateCh
+func (r *ServiceRegistry) checkHttp(url string, unitId string, resultCh chan HealthCheckResult) {
+	r.hRateCh <- true
 	cli := http.Client{Timeout: r.Options.CheckTimeout}
 	resp, err := cli.Get(url)
 	if err != nil {
-		<-r.hRateCh
-		return false
+		resultCh <- HealthCheckResult{unitId, false}
+		goto done
 	}
 	ioutil.ReadAll(resp.Body)
 	resp.Body.Close()
 	if resp.StatusCode/100 == 2 {
-		<-r.hRateCh
-		return true
+		resultCh <- HealthCheckResult{unitId, true}
 	} else {
-		<-r.hRateCh
-		return false
+		resultCh <- HealthCheckResult{unitId, false}
 	}
+done:
+	<-r.hRateCh
 }
-func (r *ServiceRegistry) checkTcp(address string) bool {
+
+func (r *ServiceRegistry) checkTcp(address string, unitId string, resultCh chan HealthCheckResult) {
 	r.hRateCh <- true
 	conn, err := net.DialTimeout("tcp", address, r.Options.CheckTimeout)
 	if err != nil {
-		<-r.hRateCh
-		return false
+		resultCh <- HealthCheckResult{unitId, false}
+		goto done
 	}
 
 	conn.Close()
+	resultCh <- HealthCheckResult{unitId, true}
+done:
 	<-r.hRateCh
-	return true
-}
-
-func (r *ServiceRegistry) LookupA(query string) []dns.A {
-	if !strings.HasSuffix(query, ".service."+r.domain) {
-		return nil
-	}
-	return nil
-
-}
-func (r *ServiceRegistry) LookupSrv(query string) []dns.SRV {
-	return nil
 }
