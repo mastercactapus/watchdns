@@ -18,11 +18,37 @@ var mainCmd = &cobra.Command{
 
 var domainRx = regexp.MustCompile(`^[a-z][a-z0-9-.]*\.$`)
 
+func mustParseDurationKey(name string) time.Duration {
+	d, err := time.ParseDuration(viper.GetString(name))
+	if err != nil {
+		log.Fatalf("invalid duration '%s' for key '%s': %s\n", viper.GetString(name), name, err.Error())
+	}
+	return d
+}
+
+func registryOptions() *RegistryOptions {
+	opts := new(RegistryOptions)
+	opts.CheckConcurrent = viper.GetInt("CheckConcurrent")
+	opts.Domain = viper.GetString("Domain")
+	opts.CheckInterval = mustParseDurationKey("CheckInterval")
+	opts.CheckTimeout = mustParseDurationKey("CheckTimeout")
+	opts.CheckResolution = mustParseDurationKey("CheckResolution")
+	opts.FleetInterval = mustParseDurationKey("FleetInterval")
+	return opts
+}
+
 func execute(cmd *cobra.Command, args []string) {
 	setupLogrus()
-	if !domainRx.MatchString(strings.ToLower(viper.GetString("WatchDomain"))) {
-		log.Fatalln("invalid domain specified for WatchDomain:", viper.GetString("WatchDomain"))
+	if !domainRx.MatchString(strings.ToLower(viper.GetString("Domain"))) {
+		log.Fatalln("invalid domain specified for Domain:", viper.GetString("Domain"))
 	}
+	peers := strings.Split(viper.GetString("EtcdPeers"), ",")
+	r, err := NewServiceRegistry(peers, viper.GetString("FleetPrefix"), mustParseDurationKey("EtcdTimeout"), registryOptions())
+	if err != nil {
+		log.Fatalln("Failed to initialize fleet registry:", err)
+	}
+	r.Start()
+	serveDns(r, viper.GetString("BindAddress"))
 }
 
 func init() {
@@ -38,7 +64,7 @@ func init() {
 	mainCmd.PersistentFlags().StringP("bind-address", "b", ":8053", "Bind address for the DNS responder.")
 	mainCmd.PersistentFlags().StringP("log-level", "l", "warn", "Log verbosity level, can be: 'debug', 'info', 'warn', 'error', or 'fatal'.")
 	mainCmd.PersistentFlags().StringP("log-format", "o", "ascii", "Log format, can be: 'ascii' or 'json'.")
-	viper.BindPFlag("WatchDomain", mainCmd.PersistentFlags().Lookup("watch-domain"))
+	viper.BindPFlag("Domain", mainCmd.PersistentFlags().Lookup("watch-domain"))
 	viper.BindPFlag("CheckInterval", mainCmd.PersistentFlags().Lookup("check-interval"))
 	viper.BindPFlag("CheckTimeout", mainCmd.PersistentFlags().Lookup("check-timeout"))
 	viper.BindPFlag("CheckConcurrent", mainCmd.PersistentFlags().Lookup("check-concurrent"))
