@@ -1,7 +1,5 @@
 # WatchDNS
 
-** NOTE: Not currently ready for use **
-
 A dynamic DNS responder for fleet clusters.
 
 ## Features
@@ -27,7 +25,7 @@ You can also run `watchdns --help` for a list of options and more details about 
 
 ```toml
 # All config keys and their defaults
-WatchDomain="watchdns."
+Domain="watchdns."
 CheckInterval="5s"
 EtcdPeers="http://localhost:4001"
 FleetInterval="10s"
