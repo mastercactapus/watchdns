@@ -29,6 +29,31 @@ func TestParseSrvOption(t *testing.T) {
 	assert.Equal(t, 4, s.Weight)
 }
 
+func TestParseUnitName(t *testing.T) {
+	p, i, ty := parseUnitName("foobar.service")
+	assert.Equal(t, "foobar", p)
+	assert.Equal(t, "", i)
+	assert.Equal(t, ".service", ty)
+	p, i, ty = parseUnitName("foobar@one.service")
+	assert.Equal(t, "foobar", p)
+	assert.Equal(t, "one", i)
+	assert.Equal(t, ".service", ty)
+	//should only parse, but not unescape
+	p, i, ty = parseUnitName("foo\\x25bar@one-there.service")
+	assert.Equal(t, "foo\\x25bar", p)
+	assert.Equal(t, "one-there", i)
+	assert.Equal(t, ".service", ty)
+	p, i, ty = parseUnitName("foobar@.service")
+	assert.Equal(t, "foobar", p)
+	assert.Equal(t, "", i)
+	assert.Equal(t, ".service", ty)
+	p, i, ty = parseUnitName("foobar@1@f.service")
+	assert.Equal(t, "foobar", p)
+	assert.Equal(t, "1@f", i)
+	assert.Equal(t, ".service", ty)
+
+}
+
 func TestSystemdUnescape(t *testing.T) {
 	assert.Equal(t, "/ho-me/nathan/.local/Steam/steamap\\%@test\\ing", systemdUnescape(`-ho\x2dme-nathan-.local-Steam-steamap\\x25\x40test\x5cing`))
 }

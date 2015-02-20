@@ -2,11 +2,9 @@ package main
 
 import (
 	"github.com/coreos/fleet/registry"
-	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"net"
 	"regexp"
 	"strings"
 	"time"
@@ -25,11 +23,10 @@ func execute(cmd *cobra.Command, args []string) {
 	if !domainRx.MatchString(strings.ToLower(viper.GetString("WatchDomain"))) {
 		log.Fatalln("invalid domain specified for WatchDomain:", viper.GetString("WatchDomain"))
 	}
-	machines()
 }
 
 func init() {
-	mainCmd.PersistentFlags().StringP("watch-domain", "watchdns.", "tld to serve queries from, must end with a '.'")
+	mainCmd.PersistentFlags().StringP("watch-domain", "d", "watchdns.", "tld to serve queries from, must end with a '.'")
 	mainCmd.PersistentFlags().Duration("check-interval", time.Second*5, "Interval to set for CheckInterval when unspecified in a unit file.")
 	mainCmd.PersistentFlags().Duration("check-timeout", time.Second*3, "Timeout for TCP and HTTP checks when unspecified in a unit file.")
 	mainCmd.PersistentFlags().UintP("check-concurrent", "c", 20, "Number of concurrent health checks to run.")

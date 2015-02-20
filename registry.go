@@ -5,18 +5,16 @@ import (
 	"github.com/coreos/fleet/registry"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 	"io/ioutil"
 	"net"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 )
 
 type ServiceRegistry struct {
 	Options  RegistryOptions
-	etcd     *etcd.Client
+	etcd     etcd.Client
 	registry *registry.EtcdRegistry
 	endCh    chan bool
 	queryCh  chan Query
@@ -34,6 +32,12 @@ type RegistryOptions struct {
 	CheckConcurrent int
 }
 
+type ServiceEntry struct {
+	HealthChecks int
+	Successful   int
+	Pending      int
+}
+
 type Query struct {
 	Question dns.Question
 	Answer   chan []dns.RR
@@ -45,9 +49,10 @@ type HealthCheckResult struct {
 	Result  bool
 }
 
-func NewServiceRegistry(etcdPeers []string, prefix, string, timeout time.Duration, options *RegistryOptions) (*ServiceRegistry, error) {
-	log.Debugln("Using etcd peers:", peers)
+func NewServiceRegistry(etcdPeers []string, prefix string, timeout time.Duration, options *RegistryOptions) (*ServiceRegistry, error) {
+	log.Debugln("Using etcd peers:", etcdPeers)
 	cli, err := etcd.NewClient(etcdPeers, http.DefaultTransport.(*http.Transport), timeout)
+
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +60,7 @@ func NewServiceRegistry(etcdPeers []string, prefix, string, timeout time.Duratio
 	s.etcd = cli
 	s.Options = *options
 	log.Debugln("Using fleet prefix:", prefix)
-	s.registry = registry.NewEtcdRegistry(cli, prefix)
+	s.registry = registry.NewEtcdRegistry(s.etcd, prefix)
 	return s, nil
 }
 
@@ -64,7 +69,7 @@ func (r *ServiceRegistry) Start() {
 	r.hRateCh = make(chan bool, r.Options.CheckConcurrent)
 	r.endCh = make(chan bool)
 	r.queryCh = make(chan Query, 100)
-	go r.mainLoop(r.endCh)
+	go r.mainLoop(r.endCh, r.queryCh)
 	<-r.endCh
 	r.running = true
 }
@@ -87,21 +92,48 @@ func (r *ServiceRegistry) mainLoop(endCh chan bool, queryCh chan Query) {
 			fleetCh.Stop()
 			healthCh.Stop()
 			break
-		case <-fleetCh:
+		case <-fleetCh.C:
 			r.reloadFleet()
-		case <-healthCh:
-			r.doHealthChecks()
+		case <-healthCh.C:
+			r.doHealthChecks(healthResultsCh)
 		case result := <-healthResultsCh:
-
+			_ = result
 		case query := <-queryCh:
-
+			_ = query
 		}
 	}
 }
 
 func (r *ServiceRegistry) reloadFleet() {
+	machines, err := r.registry.Machines()
+	if err != nil {
+		log.Warn("Failed to get list of machines:", err)
+		return
+	}
 	//new services should be set with random offset for check times (so not all checks run at once)
-	r.registry.UnitStates()
+	units, err := r.registry.UnitStates()
+	if err != nil {
+		log.Warn("Failed to get list of units:", err)
+		return
+	}
+	ips := make(map[string]string, len(machines))
+	for _, v := range machines {
+		ips[v.ID] = v.PublicIP
+	}
+	for _, v := range units {
+		u, err := r.registry.Unit(v.UnitName)
+		if err != nil {
+			log.Warn("Could not read unit from fleet:", err)
+			continue
+		}
+		vars := new(UnitVars)
+		vars.HostName = ips[v.MachineID]
+		vars.PrefixName, vars.InstanceName, _ = parseUnitName(v.UnitName)
+		vars.UnitName = v.UnitName
+		vars.MachineId = v.MachineID
+		svc := vars.ServiceOption(u.Unit.Options)
+		log.Error("Don't know what to do:", svc.Name)
+	}
 }
 
 // doHealthChecks fires off all pending health checks (with expired timers)
@@ -138,7 +170,7 @@ func (r *ServiceRegistry) checkTcp(address string) bool {
 		<-r.hRateCh
 		return false
 	}
-	conn.SetLinger(0)
+
 	conn.Close()
 	<-r.hRateCh
 	return true
@@ -148,8 +180,9 @@ func (r *ServiceRegistry) LookupA(query string) []dns.A {
 	if !strings.HasSuffix(query, ".service."+r.domain) {
 		return nil
 	}
+	return nil
 
 }
 func (r *ServiceRegistry) LookupSrv(query string) []dns.SRV {
-
+	return nil
 }

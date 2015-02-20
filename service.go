@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
-	"github.com/coreos/go-systemd/unit"
+	"github.com/coreos/fleet/Godeps/_workspace/src/github.com/coreos/go-systemd/unit" //this is why you don't embed dependencies
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"net"
@@ -38,6 +38,22 @@ type ServiceOption struct {
 	CheckTcp      []*net.TCPAddr
 	CheckInterval time.Duration
 	CheckTimeout  time.Duration
+}
+
+func parseUnitName(name string) (prefix, instance, unitType string) {
+	idx := strings.LastIndex(name, ".")
+	if idx == -1 {
+		return name, "", ""
+	}
+	unitType = name[idx:]
+	sIdx := strings.Index(name[:idx], "@")
+	if sIdx == -1 {
+		prefix = name[:idx]
+	} else {
+		prefix = name[:sIdx]
+		instance = name[sIdx+1 : idx]
+	}
+	return
 }
 
 func parseSrvOption(val string) (*SrvOption, error) {
