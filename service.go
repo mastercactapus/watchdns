@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/coreos/fleet/Godeps/_workspace/src/github.com/coreos/go-systemd/unit" //this is why you don't embed dependencies
 	log "github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 	"net"
 	"net/url"
 	"strconv"
@@ -158,14 +157,14 @@ func (v *UnitVars) ExpandValue(val string) string {
 	return out.String()
 }
 
-func (vars *UnitVars) ServiceOption(opts []*unit.UnitOption) *ServiceOption {
+func (vars *UnitVars) ServiceOption(defaults RegistryOptions, opts []*unit.UnitOption) *ServiceOption {
 	o := new(ServiceOption)
 	o.Name = vars.ExpandValue("%P")
 	o.Tags = make([]string, 0, 4)
 	o.SrvOptions = make([]*SrvOption, 0, 2)
 	o.CheckHttp = make([]*url.URL, 0, 8)
 	o.CheckTcp = make([]*net.TCPAddr, 0, 5)
-	o.CheckInterval = viper.Get("CheckInterval").(time.Duration)
+	o.CheckInterval = defaults.CheckInterval
 	if vars.InstanceName != "" {
 		o.Tags = append(o.Tags, vars.ExpandValue("%I"))
 	}
