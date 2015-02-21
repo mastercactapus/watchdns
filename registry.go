@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"github.com/coreos/fleet/etcd"
 	"github.com/coreos/fleet/registry"
 	log "github.com/sirupsen/logrus"
@@ -36,11 +37,13 @@ type RegistryOptions struct {
 type ServiceEntry struct {
 	LastFleetCheck  time.Time
 	LastHealthCheck time.Time
+	UnitHash        string
 	ServiceOption
 	ServerAddress       net.IP
 	PendingHealthChecks int
 	FailedHealthChecks  int
 	Online              bool
+	Running             bool
 }
 
 type QuerySrv struct {
@@ -151,11 +154,7 @@ func (r *ServiceRegistry) doLookupA(q QueryA) {
 	}
 	ans := make([]AnswerA, 0, len(entries))
 	for _, e := range entries {
-		// Don't use the unit if the last check with fleet was greater than 2x the Check interval
-		if e.LastFleetCheck.Add(r.Options.FleetInterval * 2 * time.Second).Before(time.Now()) {
-			continue
-		}
-		if e.Online && e.ServerAddress != nil {
+		if e.Running && e.Online && e.ServerAddress != nil {
 			ans = append(ans, AnswerA{e.ServerAddress, e.CheckInterval})
 		}
 	}
@@ -169,11 +168,7 @@ func (r *ServiceRegistry) doLookupSrv(q QuerySrv) {
 	}
 	ans := make([]AnswerSrv, 0, len(entries)*3)
 	for _, e := range entries {
-		// Don't use the unit if the last check with fleet was greater than 2x the Check interval
-		if e.LastFleetCheck.Add(r.Options.FleetInterval * 2 * time.Second).Before(time.Now()) {
-			continue
-		}
-		if !e.Online || e.ServerAddress == nil {
+		if !e.Running || !e.Online || e.ServerAddress == nil {
 			continue
 		}
 		for _, s := range e.SrvOptions {
@@ -187,7 +182,6 @@ func (r *ServiceRegistry) doLookupSrv(q QuerySrv) {
 }
 
 func (r *ServiceRegistry) processHealthCheckResult(h HealthCheckResult) {
-	log.Debugln("HealthCheckResult", h.UnitId, h.Result)
 	entry := r.units[h.UnitId]
 	if entry == nil {
 		return
@@ -205,7 +199,29 @@ func (r *ServiceRegistry) processHealthCheckResult(h HealthCheckResult) {
 	}
 }
 
+func (r *ServiceRegistry) updateEntry(unitName, machineId, machineIp string, entry *ServiceEntry) error {
+	log.Debugln("Updating unit: " + unitName + ":" + machineId)
+	u, err := r.registry.Unit(unitName)
+	if err != nil {
+		log.Warn("Could not read unit from fleet:", err)
+		return err
+	}
+	if u == nil {
+		return errors.New("unit data missing")
+	}
+	vars := new(UnitVars)
+	vars.HostName = machineIp
+	vars.PrefixName, vars.InstanceName, _ = parseUnitName(unitName)
+	vars.UnitName = unitName
+	vars.MachineId = machineId
+	svc := vars.ServiceOption(r.Options, u.Unit.Options)
+
+	entry.ServiceOption = *svc
+	return nil
+}
+
 func (r *ServiceRegistry) reloadFleet() {
+	log.Debugln("reload fleet")
 	machines, err := r.registry.Machines()
 	if err != nil {
 		log.Warn("Failed to get list of machines:", err)
@@ -224,40 +240,34 @@ func (r *ServiceRegistry) reloadFleet() {
 
 	r.lookup = make(map[string][]*ServiceEntry, len(units)*3)
 	for _, v := range units {
-		u, err := r.registry.Unit(v.UnitName)
-		if err != nil {
-			log.Warn("Could not read unit from fleet:", err)
-			continue
-		}
-		if u == nil {
-			continue
-		}
-		vars := new(UnitVars)
-		vars.HostName = ips[v.MachineID]
-		var unitType string
-		vars.PrefixName, vars.InstanceName, unitType = parseUnitName(v.UnitName)
-		vars.UnitName = v.UnitName
-		vars.MachineId = v.MachineID
-		svc := vars.ServiceOption(r.Options, u.Unit.Options)
 		var entry *ServiceEntry
 		if r.units[v.UnitName+":"+v.MachineID] != nil {
 			entry = r.units[v.UnitName+":"+v.MachineID]
+			if entry.UnitHash != v.UnitHash {
+				err := r.updateEntry(v.UnitName, v.MachineID, ips[v.MachineID], entry)
+				if err != nil {
+					continue
+				}
+			}
 		} else {
 			entry = new(ServiceEntry)
+			r.units[v.UnitName+":"+v.MachineID] = entry
+			err := r.updateEntry(v.UnitName, v.MachineID, ips[v.MachineID], entry)
+			if err != nil {
+				continue
+			}
 		}
-		entry.ServiceOption = *svc
+		entry.UnitHash = v.UnitHash
 		entry.ServerAddress = net.ParseIP(ips[v.MachineID])
 		if v.ActiveState == "active" {
-			entry.LastFleetCheck = time.Now()
+			entry.Running = true
+		} else {
+			entry.Running = false
 		}
 
-		if r.units[v.UnitName+":"+v.MachineID] == nil {
-			log.Debugln("found unit", v.UnitName+":"+v.MachineID)
-		}
-		r.units[v.UnitName+":"+v.MachineID] = entry
-		r.addToLookupTable(entry.Name+unitType+"."+r.Options.Domain, entry)
+		r.addToLookupTable(entry.Name+".service."+r.Options.Domain, entry)
 		for _, t := range entry.Tags {
-			r.addToLookupTable(t+"."+entry.Name+unitType+"."+r.Options.Domain, entry)
+			r.addToLookupTable(t+"."+entry.Name+".service."+r.Options.Domain, entry)
 		}
 		for _, s := range entry.SrvOptions {
 			r.addToLookupTable("_"+s.Service+"._"+s.Protocol+"."+r.Options.Domain, entry)
