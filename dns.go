@@ -19,6 +19,7 @@ func (d *dnsServer) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	m := new(dns.Msg)
 	m.SetReply(r)
 	m.Answer = make([]dns.RR, 0, len(r.Question)*3)
+	m.Extra = make([]dns.RR, 0, len(r.Question)*3)
 	for _, q := range r.Question {
 		log.Debugln("Query", q.String())
 		switch q.Qtype {
@@ -37,16 +38,21 @@ func (d *dnsServer) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 				log.Warn("Invalid SRV request:", q.Name)
 				continue
 			}
-			ans := d.registry.LookupSrv(q.Name, parts[1][1:], parts[0][1:])
+			ans := d.registry.LookupSrv(q.Name, parts[0][1:], parts[1][1:])
 			log.Debugln("Answer[SRV]", ans)
 			for _, rec := range ans {
-				a := new(dns.SRV)
-				a.Hdr = dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: uint32(rec.Ttl.Seconds())}
-				a.Port = rec.Port
-				a.Priority = rec.Priority
-				a.Target = rec.Server.String()
-				a.Weight = rec.Weight
-				m.Answer = append(m.Answer, a)
+				srv := new(dns.SRV)
+				srv.Hdr = dns.RR_Header{Name: q.Name, Rrtype: dns.TypeSRV, Class: dns.ClassINET, Ttl: uint32(rec.Ttl.Seconds())}
+				srv.Port = rec.Port
+				srv.Priority = rec.Priority
+				srv.Target = rec.Target
+				srv.Weight = rec.Weight
+				m.Answer = append(m.Answer, srv)
+
+				a := new(dns.A)
+				a.Hdr = dns.RR_Header{Name: rec.Target, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: uint32(rec.Ttl.Seconds())}
+				a.A = rec.TargetIP
+				m.Extra = append(m.Extra, a)
 			}
 		}
 	}

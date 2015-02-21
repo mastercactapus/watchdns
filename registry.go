@@ -8,21 +8,23 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
 type ServiceRegistry struct {
-	Options    RegistryOptions
-	etcd       etcd.Client
-	registry   *registry.EtcdRegistry
-	endCh      chan bool
-	queryACh   chan QueryA
-	querySrvCh chan QuerySrv
-	hRateCh    chan bool
-	domain     string
-	running    bool
-	units      map[string]*ServiceEntry
-	lookup     map[string][]*ServiceEntry
+	Options       RegistryOptions
+	etcd          etcd.Client
+	registry      *registry.EtcdRegistry
+	endCh         chan bool
+	queryACh      chan QueryA
+	querySrvCh    chan QuerySrv
+	hRateCh       chan bool
+	domain        string
+	running       bool
+	units         map[string]*ServiceEntry
+	machineLookup map[string]net.IP
+	lookup        map[string][]*ServiceEntry
 }
 
 type RegistryOptions struct {
@@ -39,6 +41,7 @@ type ServiceEntry struct {
 	LastHealthCheck time.Time
 	UnitHash        string
 	ServiceOption
+	Hostname            string
 	ServerAddress       net.IP
 	PendingHealthChecks int
 	FailedHealthChecks  int
@@ -57,7 +60,8 @@ type QueryA struct {
 	Name     string
 }
 type AnswerSrv struct {
-	Server net.IP
+	Target   string
+	TargetIP net.IP
 	SrvOption
 	Ttl time.Duration
 }
@@ -138,15 +142,24 @@ func (r *ServiceRegistry) LookupA(name string) []AnswerA {
 	close(ch)
 	return ans
 }
-func (r *ServiceRegistry) LookupSrv(name, protocol, service string) []AnswerSrv {
+func (r *ServiceRegistry) LookupSrv(name, service, protocol string) []AnswerSrv {
 	ch := make(chan []AnswerSrv, 1)
-	r.querySrvCh <- QuerySrv{ch, name, protocol, service}
+	r.querySrvCh <- QuerySrv{ch, name, service, protocol}
 	ans := <-ch
 	close(ch)
 	return ans
 }
 
 func (r *ServiceRegistry) doLookupA(q QueryA) {
+	if strings.HasSuffix(q.Name, ".machine."+r.Options.Domain) {
+		addr := r.machineLookup[q.Name]
+		if addr != nil {
+			q.AnswerCh <- []AnswerA{{addr, r.Options.FleetInterval}}
+		} else {
+			q.AnswerCh <- []AnswerA{}
+		}
+		return
+	}
 	entries := r.lookup[q.Name]
 	if entries == nil || len(entries) == 0 {
 		q.AnswerCh <- []AnswerA{}
@@ -175,7 +188,7 @@ func (r *ServiceRegistry) doLookupSrv(q QuerySrv) {
 			if s.Service != q.Service || s.Protocol != q.Protocol {
 				continue
 			}
-			ans = append(ans, AnswerSrv{e.ServerAddress, *s, e.CheckInterval})
+			ans = append(ans, AnswerSrv{e.Hostname, e.ServerAddress, *s, e.CheckInterval})
 		}
 	}
 	q.AnswerCh <- ans
@@ -221,7 +234,6 @@ func (r *ServiceRegistry) updateEntry(unitName, machineId, machineIp string, ent
 }
 
 func (r *ServiceRegistry) reloadFleet() {
-	log.Debugln("reload fleet")
 	machines, err := r.registry.Machines()
 	if err != nil {
 		log.Warn("Failed to get list of machines:", err)
@@ -234,7 +246,11 @@ func (r *ServiceRegistry) reloadFleet() {
 		return
 	}
 	ips := make(map[string]string, len(machines))
+	r.machineLookup = make(map[string]net.IP, len(machines)*2)
 	for _, v := range machines {
+		ip := net.ParseIP(v.PublicIP)
+		r.machineLookup["m-"+v.ShortID()+".machine."+r.Options.Domain] = ip
+		r.machineLookup["m-"+v.ID+".machine."+r.Options.Domain] = ip
 		ips[v.ID] = v.PublicIP
 	}
 
@@ -258,6 +274,7 @@ func (r *ServiceRegistry) reloadFleet() {
 			}
 		}
 		entry.UnitHash = v.UnitHash
+		entry.Hostname = "m-" + v.MachineID + ".machine." + r.Options.Domain
 		entry.ServerAddress = net.ParseIP(ips[v.MachineID])
 		if v.ActiveState == "active" {
 			entry.Running = true
