@@ -9,6 +9,7 @@ A dynamic DNS responder for fleet clusters.
 - TCP health checks
 - HTTP health checks
 - Configuration via fleet services (in systemd unit files)
+- DNS lookup for `services` and `machines` (by fleet ID and short ID -- used in SRV records)
 
 ## Configuration
 
