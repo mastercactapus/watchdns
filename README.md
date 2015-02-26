@@ -11,6 +11,13 @@ A dynamic DNS responder for fleet clusters.
 - Configuration via fleet services (in systemd unit files)
 - DNS lookup for `services` and `machines` (by fleet ID and short ID -- used in SRV records)
 
+Planned:
+
+- Round robin, random, or default 
+- Fallback/backup support (only respond with fallbacks/backups if primaries are down)
+- Distributed health-checking
+
+
 ## Configuration
 
 All configuration options may be set in one of 3 ways:
