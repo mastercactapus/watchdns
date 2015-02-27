@@ -34,6 +34,7 @@ type RegistryOptions struct {
 	CheckInterval   time.Duration
 	CheckTimeout    time.Duration
 	CheckConcurrent int
+	RecordSort      string
 }
 
 type ServiceEntry struct {

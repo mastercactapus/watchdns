@@ -3,16 +3,18 @@ package main
 import (
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
+	"math/rand"
 	"strings"
 )
 
 type dnsServer struct {
-	registry *ServiceRegistry
+	registry    *ServiceRegistry
+	shiftCounts map[string]int
 }
 
 func serveDns(r *ServiceRegistry, bindAddr string) {
 	log.Info("Starting dns server", bindAddr)
-	dns.ListenAndServe(bindAddr, "udp", &dnsServer{r})
+	dns.ListenAndServe(bindAddr, "udp", &dnsServer{r, make(map[string]int)})
 }
 
 func (d *dnsServer) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
@@ -56,5 +58,19 @@ func (d *dnsServer) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 			}
 		}
 	}
+
+	if d.registry.Options.RecordSort == "random" {
+		p := rand.Perm(len(m.Answer))
+		for i, v := range p {
+			m.Answer[i] = m.Answer[v]
+		}
+	} else if d.registry.Options.RecordSort == "roundrobin" {
+		shift := d.shiftCounts[r.Question[0].Name]
+		d.shiftCounts[r.Question[0].Name] = (shift + 1) % len(m.Answer)
+		for i := range m.Answer {
+			m.Answer[i] = m.Answer[(i+shift)%len(m.Answer)]
+		}
+	}
+
 	w.WriteMsg(m)
 }

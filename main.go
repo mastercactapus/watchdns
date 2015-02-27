@@ -34,6 +34,10 @@ func registryOptions() *RegistryOptions {
 	opts.CheckTimeout = mustParseDurationKey("CheckTimeout")
 	opts.CheckResolution = mustParseDurationKey("CheckResolution")
 	opts.FleetInterval = mustParseDurationKey("FleetInterval")
+	opts.RecordSort = viper.GetString("RecordSort")
+	if opts.RecordSort != "default" && opts.RecordSort != "random" && opts.RecordSort != "roundrobin" {
+		log.Fatalln("Unknown RecordSort value: ", opts.RecordSort)
+	}
 	return opts
 }
 
@@ -64,6 +68,7 @@ func init() {
 	mainCmd.PersistentFlags().StringP("bind-address", "b", ":8053", "Bind address for the DNS responder.")
 	mainCmd.PersistentFlags().StringP("log-level", "l", "warn", "Log verbosity level, can be: 'debug', 'info', 'warn', 'error', or 'fatal'.")
 	mainCmd.PersistentFlags().StringP("log-format", "o", "ascii", "Log format, can be: 'ascii' or 'json'.")
+	mainCmd.PersistentFlags().StringP("record-sort", "s", "default", "Sort-order for DNS responses. Can be 'default', 'random', or 'roundrobin'")
 	viper.BindPFlag("Domain", mainCmd.PersistentFlags().Lookup("watch-domain"))
 	viper.BindPFlag("CheckInterval", mainCmd.PersistentFlags().Lookup("check-interval"))
 	viper.BindPFlag("CheckTimeout", mainCmd.PersistentFlags().Lookup("check-timeout"))
@@ -76,6 +81,7 @@ func init() {
 	viper.BindPFlag("BindAddress", mainCmd.PersistentFlags().Lookup("bind-address"))
 	viper.BindPFlag("LogLevel", mainCmd.PersistentFlags().Lookup("log-level"))
 	viper.BindPFlag("LogFormat", mainCmd.PersistentFlags().Lookup("log-format"))
+	viper.BindPFlag("RecordSort", mainCmd.PersistentFlags().Lookup("record-sort"))
 	viper.SetConfigName("config")
 	viper.AddConfigPath("/etc/watchdns/")
 	viper.ReadInConfig()
