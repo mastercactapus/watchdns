@@ -41,4 +41,5 @@ FleetPrefix=""
 BindAddress=":8053"
 LogLevel="info"
 LogFormat="ascii"
+RecordSort="default"
 ```
