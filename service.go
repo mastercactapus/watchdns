@@ -166,7 +166,7 @@ func (vars *UnitVars) ServiceOption(defaults RegistryOptions, opts []*unit.UnitO
 	o.CheckTcp = make([]*net.TCPAddr, 0, 5)
 	o.CheckInterval = defaults.CheckInterval
 	if vars.InstanceName != "" {
-		o.Tags = append(o.Tags, vars.ExpandValue("%I"))
+		o.Tags = append(o.Tags, "i-"+vars.ExpandValue("%I"))
 	}
 	for _, v := range opts {
 		if v.Section != "X-Watchdns" {
