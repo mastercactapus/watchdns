@@ -60,16 +60,20 @@ func (d *dnsServer) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	if d.registry.Options.RecordSort == "random" {
+		tmp := make([]dns.RR, len(m.Answer))
 		p := rand.Perm(len(m.Answer))
 		for i, v := range p {
-			m.Answer[i] = m.Answer[v]
+			tmp[i] = m.Answer[v]
 		}
+		m.Answer = tmp
 	} else if d.registry.Options.RecordSort == "roundrobin" {
+		tmp := make([]dns.RR, len(m.Answer))
 		shift := d.shiftCounts[r.Question[0].Name]
 		d.shiftCounts[r.Question[0].Name] = (shift + 1) % len(m.Answer)
 		for i := range m.Answer {
-			m.Answer[i] = m.Answer[(i+shift)%len(m.Answer)]
+			tmp[i] = m.Answer[(i+shift)%len(m.Answer)]
 		}
+		m.Answer = tmp
 	}
 
 	w.WriteMsg(m)
